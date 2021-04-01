@@ -3,8 +3,10 @@ package ru.varasoft.kotlin.kotlinlesson9.ui
 import android.Manifest
 import android.content.ContentResolver
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.net.Uri
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.view.LayoutInflater
@@ -17,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import ru.varasoft.kotlin.kotlinlesson9.R
 import ru.varasoft.kotlin.kotlinlesson9.databinding.MainFragmentBinding
+
 
 class MainFragment : Fragment() {
 
@@ -37,7 +40,7 @@ class MainFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        checkPermission()
+        checkReadContactsPermission()
     }
 
     override fun onDestroyView() {
@@ -70,7 +73,34 @@ class MainFragment : Fragment() {
                         // Берём из Cursor'а столбец с именем
                         val name =
                             cursor.getString(cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME))
-                        addView(it, name)
+                        val id =
+                            cursor.getString(cursor.getColumnIndex(ContactsContract.Contacts._ID))
+                        val has_phone =
+                            cursor.getString(cursor.getColumnIndex(ContactsContract.Contacts.HAS_PHONE_NUMBER))
+
+                        var phoneNumber = ""
+
+                        if (cursor.getString(cursor.getColumnIndex(ContactsContract.Contacts.HAS_PHONE_NUMBER))
+                                .toInt() > 0
+                        ) {
+                            // Query phone here. Covered next
+                            val phones: Cursor? = it.contentResolver.query(
+                                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                                null,
+                                ContactsContract.CommonDataKinds.Phone.CONTACT_ID + " = " + id,
+                                null,
+                                null
+                            )
+                            if (phones != null) {
+                                while (phones.moveToNext()) {
+                                    phoneNumber =
+                                        phones.getString(phones.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER))
+                                    println("Number $phoneNumber")
+                                }
+                                phones.close()
+                            }
+                        }
+                        addView(it, "$name # $phoneNumber")
                     }
                 }
             }
@@ -78,7 +108,7 @@ class MainFragment : Fragment() {
         }
     }
 
-    private fun checkPermission() {
+    private fun checkReadContactsPermission() {
         context?.let {
             when {
                 ContextCompat.checkSelfPermission(it, Manifest.permission.READ_CONTACTS) ==
@@ -87,12 +117,15 @@ class MainFragment : Fragment() {
                     getContacts()
                 }
                 //Опционально: если нужно пояснение перед запросом разрешений
-                ActivityCompat.shouldShowRequestPermissionRationale(getActivity()!!, Manifest.permission.READ_CONTACTS) -> {
+                ActivityCompat.shouldShowRequestPermissionRationale(
+                    getActivity()!!,
+                    Manifest.permission.READ_CONTACTS
+                ) -> {
                     AlertDialog.Builder(it)
                         .setTitle("Доступ к контактам")
                         .setMessage("Объяснение")
                         .setPositiveButton("Предоставить доступ") { _, _ ->
-                            requestPermission()
+                            requestReadContactsPermission()
                         }
                         .setNegativeButton("Не надо") { dialog, _ -> dialog.dismiss() }
                         .create()
@@ -100,21 +133,71 @@ class MainFragment : Fragment() {
                 }
                 else -> {
                     //Запрашиваем разрешение
-                    requestPermission()
+                    requestReadContactsPermission()
                 }
             }
         }
     }
 
-    private fun requestPermission() {
+    private fun requestReadContactsPermission() {
         requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQUEST_CODE)
     }
 
+    private fun checkCallPermission() {
+        context?.let {
+            when {
+                ContextCompat.checkSelfPermission(it, Manifest.permission.CALL_PHONE) ==
+                        PackageManager.PERMISSION_GRANTED -> {
+                    //Доступ к контактам на телефоне есть
+                    getContacts()
+                }
+                //Опционально: если нужно пояснение перед запросом разрешений
+                ActivityCompat.shouldShowRequestPermissionRationale(
+                    getActivity()!!,
+                    Manifest.permission.CALL_PHONE
+                ) -> {
+                    AlertDialog.Builder(it)
+                        .setTitle("Доступ к контактам")
+                        .setMessage("Объяснение")
+                        .setPositiveButton("Предоставить доступ") { _, _ ->
+                            requestCallPermission()
+                        }
+                        .setNegativeButton("Не надо") { dialog, _ -> dialog.dismiss() }
+                        .create()
+                        .show()
+                }
+                else -> {
+                    //Запрашиваем разрешение
+                    requestCallPermission()
+                }
+            }
+        }
+    }
+
+    private fun requestCallPermission() {
+        requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), REQUEST_CODE)
+    }
 
     private fun addView(context: Context, textToShow: String) {
-        binding.containerForContacts.addView(AppCompatTextView(context).apply {
+        val view = AppCompatTextView(context).apply {
             text = textToShow
             textSize = resources.getDimension(R.dimen.main_container_text_size)
-        })
+        }
+        view.setOnClickListener {
+            checkCallPermission()
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) ==
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                val text = (it as AppCompatTextView).text
+                val str = text.substring(text.indexOf("#") + 2)
+
+                val callIntent: Intent =
+                    Intent(Intent.ACTION_CALL)
+                callIntent.setData(Uri.parse("tel:$str"))
+                startActivity(callIntent)
+            }
+        }
+
+        binding.containerForContacts.addView(view)
     }
 }
